@@ -9,6 +9,7 @@ import {
   addIcon,
   setIcon,
   FileSystemAdapter,
+  Platform,
 } from "obsidian";
 import cloneDeep from "lodash/cloneDeep";
 import { createElement, RotateCcw, RefreshCcw, FileText } from "lucide";
@@ -89,6 +90,7 @@ const DEFAULT_SETTINGS: RemotelySavePluginSettings = {
   lang: "auto",
   logToDB: false,
   skipSizeLargerThan: -1,
+  enableStatusBarInfo: true,
   lastSuccessSync: -1
 };
 
@@ -687,14 +689,18 @@ export default class RemotelySavePlugin extends Plugin {
       async () => this.syncRun("manual")
     );
 
-    const statusBarItem = this.addStatusBarItem();
-    this.statusBarElement = statusBarItem.createEl("span");
-    this.statusBarElement.setAttribute("aria-label-position", "top");
-    this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
-    // update statusbar text every 30 seconds
-    this.registerInterval(window.setInterval(() => {
+    // Create Status Bar Item (not supported on mobile)
+    if (!Platform.isMobileApp && this.settings.enableStatusBarInfo === true) {
+      const statusBarItem = this.addStatusBarItem();
+      this.statusBarElement = statusBarItem.createEl("span");
+      this.statusBarElement.setAttribute("aria-label-position", "top");
+
       this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
-    }, 1000*30));
+      // update statusbar text every 30 seconds
+      this.registerInterval(window.setInterval(() => {
+        this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
+      }, 1000 * 30));
+    }
 
     this.addCommand({
       id: "start-sync",
@@ -1014,6 +1020,8 @@ export default class RemotelySavePlugin extends Plugin {
   }
 
   updateLastSuccessSyncMsg(lastSuccessSyncMillis?: number) {
+    if (this.statusBarElement === undefined) return;
+
     const t = (x: TransItemType, vars?: any) => {
       return this.i18n.t(x, vars);
     };
