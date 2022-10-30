@@ -366,6 +366,7 @@ export default class RemotelySavePlugin extends Plugin {
       this.syncStatus = "idle";
 
       this.settings.lastSuccessSync = Date.now();
+      await this.saveSettings();
 
       if (this.syncRibbon !== undefined) {
         setIcon(this.syncRibbon, iconNameSyncWait);
