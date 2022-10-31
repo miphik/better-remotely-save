@@ -70,8 +70,10 @@ import {
   exportVaultSyncPlansToFiles,
 } from "./debugMode";
 import { SizesConflictModal } from "./syncSizesConflictNotice";
+import { LocalStorageSettings } from "./localstorage";
 
 const DEFAULT_SETTINGS: RemotelySavePluginSettings = {
+  disablePlugin: false,
   s3: DEFAULT_S3_CONFIG,
   webdav: DEFAULT_WEBDAV_CONFIG,
   dropbox: DEFAULT_DROPBOX_CONFIG,
@@ -130,6 +132,7 @@ const getIconSvg = () => {
 
 export default class RemotelySavePlugin extends Plugin {
   settings: RemotelySavePluginSettings;
+  localStorage: LocalStorageSettings;
   db: InternalDBs;
   syncStatus: SyncStatusType;
   statusBarElement: HTMLSpanElement;
@@ -145,6 +148,9 @@ export default class RemotelySavePlugin extends Plugin {
   timeoutIDBackup?: number;
 
   async syncRun(triggerSource: SyncTriggerSourceType = "manual") {
+    if (this.localStorage.getPluginDisabled()) {
+      return
+    }
     const t = (x: TransItemType, vars?: any) => {
       return this.i18n.t(x, vars);
     };
@@ -409,6 +415,9 @@ export default class RemotelySavePlugin extends Plugin {
   async onload() {
     log.info(`loading plugin ${this.manifest.id}`);
 
+    this.localStorage = new LocalStorageSettings(this);
+    this.localStorage.migrate()
+
     const { iconSvgSyncWait, iconSvgSyncRunning, iconSvgLogs } = getIconSvg();
 
     addIcon(iconNameSyncWait, iconSvgSyncWait);
@@ -427,6 +436,7 @@ export default class RemotelySavePlugin extends Plugin {
 
     await this.loadSettings();
     await this.checkIfPresetRulesFollowed();
+
 
     // lang should be load early, but after settings
     this.i18n = new I18n(this.settings.lang, async (lang: LangTypeAndAuto) => {
@@ -472,6 +482,26 @@ export default class RemotelySavePlugin extends Plugin {
     this.enableAutoClearSyncPlanHist();
 
     this.syncStatus = "idle";
+
+
+    this.addSettingTab(new RemotelySaveSettingTab(this.app, this));
+
+    // Create Status Bar Item (not supported on mobile)
+    if (!Platform.isMobileApp && this.settings.enableStatusBarInfo === true) {
+      const statusBarItem = this.addStatusBarItem();
+      this.statusBarElement = statusBarItem.createEl("span");
+      this.statusBarElement.setAttribute("aria-label-position", "top");
+
+      this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
+      // update statusbar text every 30 seconds
+      this.registerInterval(window.setInterval(() => {
+        this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
+      }, 1000 * 30));
+    }
+
+    if (this.localStorage.getPluginDisabled()) {
+      return
+    }
 
     // 开启定时刷新
     this.startAutoBackup();
@@ -690,18 +720,6 @@ export default class RemotelySavePlugin extends Plugin {
       async () => this.syncRun("manual")
     );
 
-    // Create Status Bar Item (not supported on mobile)
-    if (!Platform.isMobileApp && this.settings.enableStatusBarInfo === true) {
-      const statusBarItem = this.addStatusBarItem();
-      this.statusBarElement = statusBarItem.createEl("span");
-      this.statusBarElement.setAttribute("aria-label-position", "top");
-
-      this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
-      // update statusbar text every 30 seconds
-      this.registerInterval(window.setInterval(() => {
-        this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
-      }, 1000 * 30));
-    }
 
     this.addCommand({
       id: "start-sync",
@@ -765,7 +783,6 @@ export default class RemotelySavePlugin extends Plugin {
       },
     });
 
-    this.addSettingTab(new RemotelySaveSettingTab(this.app, this));
 
     // this.registerDomEvent(document, "click", (evt: MouseEvent) => {
     //   log.info("click", evt);
@@ -786,6 +803,14 @@ export default class RemotelySavePlugin extends Plugin {
     if (this.oauth2Info !== undefined) {
       this.oauth2Info.helperModal = undefined;
       this.oauth2Info = undefined;
+    }
+    if (this.timeoutIDBackup) {
+      window.clearTimeout(this.timeoutIDBackup)
+    }
+    if (this.autoBackupDebouncer) {
+      this.autoBackupDebouncer?.cancel();
+      this.app.vault.offref(this.onFileModifyEventRef);
+      this.onFileModifyEventRef = undefined;
     }
   }
 

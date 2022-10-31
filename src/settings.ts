@@ -832,8 +832,7 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
 
           dropdown
             .setValue(
-              `${
-                this.plugin.settings.s3.bypassCorsLocally ? "enable" : "disable"
+              `${this.plugin.settings.s3.bypassCorsLocally ? "enable" : "disable"
               }`
             )
             .onChange(async (value) => {
@@ -1537,23 +1536,21 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
             this.plugin.startAutoBackup()
           });
       });
-    
+
     new Setting(basicDiv)
       .setName(t("settings_modifyrun"))
       .setDesc(t("settings_modifyrun_desc"))
-      .addDropdown((dropdown) => {
-        dropdown.addOption("false", t("settings_modifyrun_close"));
-        dropdown.addOption("true", t("settings_modifyrun_open"));
-
-        dropdown
-          .setValue(`${this.plugin.settings.autoRunAfterModified}`)
-          .onChange(async (val: string) => {
-            const open = Boolean(val);
-            this.plugin.settings.autoRunAfterModified = open;
-            await this.plugin.saveSettings();
-            this.plugin.startAutoBackup()
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.autoRunAfterModified)
+          .onChange(async (val: boolean) => {
+            if (val !== this.plugin.settings.autoRunAfterModified) {
+              this.plugin.settings.autoRunAfterModified = val;
+              await this.plugin.saveSettings();
+              this.plugin.startAutoBackup()
+            }
           });
-      });
+      })
 
     new Setting(basicDiv)
       .setName(t("settings_runoncestartup"))
@@ -1597,7 +1594,7 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
       });
-    
+
     // custom status bar items is not supported on mobile
     if (!Platform.isMobileApp) {
       new Setting(basicDiv)
@@ -1878,6 +1875,22 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
           new Notice(t("settings_resetcache_notice"));
         });
       });
+
+    new Setting(containerEl)
+      .setName("Disable on this device")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.localStorage.getPluginDisabled())
+          .onChange((value) => {
+            this.plugin.localStorage.setPluginDisabled(value);
+            if (value) {
+              this.plugin.onunload();
+            } else {
+              this.plugin.onload();
+            }
+            new Notice("Obsidian must be restarted for the changes to take affect");
+          })
+      );
   }
 
   hide() {
