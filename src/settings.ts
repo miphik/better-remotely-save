@@ -832,7 +832,8 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
 
           dropdown
             .setValue(
-              `${this.plugin.settings.s3.bypassCorsLocally ? "enable" : "disable"
+              `${
+                this.plugin.settings.s3.bypassCorsLocally ? "enable" : "disable"
               }`
             )
             .onChange(async (value) => {
@@ -1533,7 +1534,7 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
             const realVal = parseInt(val);
             this.plugin.settings.autoRunEveryMilliseconds = realVal;
             await this.plugin.saveSettings();
-            this.plugin.startAutoBackup()
+            this.plugin.startAutoBackup();
           });
       });
 

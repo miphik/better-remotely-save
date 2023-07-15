@@ -93,7 +93,7 @@ const DEFAULT_SETTINGS: RemotelySavePluginSettings = {
   logToDB: false,
   skipSizeLargerThan: -1,
   enableStatusBarInfo: true,
-  lastSuccessSync: -1
+  lastSuccessSync: -1,
 };
 
 interface OAuth2Info {
@@ -183,7 +183,8 @@ export default class RemotelySavePlugin extends Plugin {
 
     try {
       log.info(
-        `${this.manifest.id
+        `${
+          this.manifest.id
         }-${Date.now()}: start sync, triggerSource=${triggerSource}`
       );
 
@@ -384,7 +385,8 @@ export default class RemotelySavePlugin extends Plugin {
       }
 
       log.info(
-        `${this.manifest.id
+        `${
+          this.manifest.id
         }-${Date.now()}: finish sync, triggerSource=${triggerSource}`
       );
     } catch (error) {
@@ -416,7 +418,7 @@ export default class RemotelySavePlugin extends Plugin {
     log.info(`loading plugin ${this.manifest.id}`);
 
     this.localStorage = new LocalStorageSettings(this);
-    this.localStorage.migrate()
+    this.localStorage.migrate();
 
     const { iconSvgSyncWait, iconSvgSyncRunning, iconSvgLogs } = getIconSvg();
 
@@ -436,7 +438,6 @@ export default class RemotelySavePlugin extends Plugin {
 
     await this.loadSettings();
     await this.checkIfPresetRulesFollowed();
-
 
     // lang should be load early, but after settings
     this.i18n = new I18n(this.settings.lang, async (lang: LangTypeAndAuto) => {
@@ -483,7 +484,6 @@ export default class RemotelySavePlugin extends Plugin {
 
     this.syncStatus = "idle";
 
-
     this.addSettingTab(new RemotelySaveSettingTab(this.app, this));
 
     // Create Status Bar Item (not supported on mobile)
@@ -503,7 +503,6 @@ export default class RemotelySavePlugin extends Plugin {
       return
     }
 
-    // 开启定时刷新
     this.startAutoBackup();
 
     this.registerEvent(
@@ -720,7 +719,6 @@ export default class RemotelySavePlugin extends Plugin {
       async () => this.syncRun("manual")
     );
 
-
     this.addCommand({
       id: "start-sync",
       name: t("command_startsync"),
@@ -783,6 +781,7 @@ export default class RemotelySavePlugin extends Plugin {
       },
     });
 
+    this.addSettingTab(new RemotelySaveSettingTab(this.app, this));
 
     // this.registerDomEvent(document, "click", (evt: MouseEvent) => {
     //   log.info("click", evt);
@@ -1058,14 +1057,14 @@ export default class RemotelySavePlugin extends Plugin {
     if (lastSuccessSyncMillis !== undefined && lastSuccessSyncMillis > 0) {
       const deltaTime = Date.now() - lastSuccessSyncMillis;
 
-      // create human readable time
+      // create human-readable time
       const years = Math.floor(deltaTime / 31556952000);
       const months = Math.floor(deltaTime / 2629746000);
       const weeks = Math.floor(deltaTime / 604800000);
       const days = Math.floor(deltaTime / 86400000);
       const hours = Math.floor(deltaTime / 3600000);
       const minutes = Math.floor(deltaTime / 60000);
-      let timeText = "";
+      let timeText: string;
 
       if (years > 0) {
         timeText = t("statusbar_time_years", { time: years });
