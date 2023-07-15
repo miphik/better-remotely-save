@@ -197,6 +197,8 @@ class ChangeRemoteBaseDirModal extends Modal {
           button.onClick(async () => {
             this.plugin.settings[this.service].remoteBaseDir =
               this.newRemoteBaseDir;
+            // reset last sync time
+            this.plugin.settings.lastSuccessSync = -1;
             await this.plugin.saveSettings();
             new Notice(t("modal_remotebasedir_notice"));
             this.close();
@@ -1532,26 +1534,24 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
             const realVal = parseInt(val);
             this.plugin.settings.autoRunEveryMilliseconds = realVal;
             await this.plugin.saveSettings();
-            if (
-              (realVal === undefined || realVal === null || realVal <= 0) &&
-              this.plugin.autoRunIntervalID !== undefined
-            ) {
-              // clear
-              window.clearInterval(this.plugin.autoRunIntervalID);
-              this.plugin.autoRunIntervalID = undefined;
-            } else if (
-              realVal !== undefined &&
-              realVal !== null &&
-              realVal > 0
-            ) {
-              const intervalID = window.setInterval(() => {
-                this.plugin.syncRun("auto");
-              }, realVal);
-              this.plugin.autoRunIntervalID = intervalID;
-              this.plugin.registerInterval(intervalID);
-            }
+            this.plugin.startAutoBackup();
           });
       });
+
+    new Setting(basicDiv)
+      .setName(t("settings_modifyrun"))
+      .setDesc(t("settings_modifyrun_desc"))
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.autoRunAfterModified)
+          .onChange(async (val: boolean) => {
+            if (val !== this.plugin.settings.autoRunAfterModified) {
+              this.plugin.settings.autoRunAfterModified = val;
+              await this.plugin.saveSettings();
+              this.plugin.startAutoBackup()
+            }
+          });
+      })
 
     new Setting(basicDiv)
       .setName(t("settings_runoncestartup"))
@@ -1595,6 +1595,22 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
       });
+
+    // custom status bar items is not supported on mobile
+    if (!Platform.isMobileApp) {
+      new Setting(basicDiv)
+        .setName(t("settings_enablestatusbar_info"))
+        .setDesc(t("settings_enablestatusbar_info_desc"))
+        .addToggle((toggle) => {
+          toggle
+            .setValue(this.plugin.settings.enableStatusBarInfo)
+            .onChange(async (val) => {
+              this.plugin.settings.enableStatusBarInfo = val;
+              await this.plugin.saveSettings();
+              new Notice(t("settings_enablestatusbar_reloadrequired_notice"));
+            });
+        });
+    }
 
     //////////////////////////////////////////////////
     // below for advanced settings
@@ -1860,6 +1876,22 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
           new Notice(t("settings_resetcache_notice"));
         });
       });
+
+    new Setting(containerEl)
+      .setName("Disable on this device")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.localStorage.getPluginDisabled())
+          .onChange((value) => {
+            this.plugin.localStorage.setPluginDisabled(value);
+            if (value) {
+              this.plugin.onunload();
+            } else {
+              this.plugin.onload();
+            }
+            new Notice("Obsidian must be restarted for the changes to take affect");
+          })
+      );
   }
 
   hide() {

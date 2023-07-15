@@ -70,6 +70,7 @@ export interface OnedriveConfig {
 }
 
 export interface RemotelySavePluginSettings {
+  disablePlugin?: boolean;
   s3: S3Config;
   webdav: WebdavConfig;
   dropbox: DropboxConfig;
@@ -78,6 +79,7 @@ export interface RemotelySavePluginSettings {
   serviceType: SUPPORTED_SERVICES_TYPE;
   currLogLevel?: string;
   autoRunEveryMilliseconds?: number;
+  autoRunAfterModified?: boolean;
   initRunAfterMilliseconds?: number;
   agreeToUploadExtraMetadata?: boolean;
   concurrency?: number;
@@ -86,6 +88,8 @@ export interface RemotelySavePluginSettings {
   lang?: LangTypeAndAuto;
   logToDB?: boolean;
   skipSizeLargerThan?: number;
+  enableStatusBarInfo: boolean;
+  lastSuccessSync?: number;
 
   /**
    * @deprecated
@@ -181,3 +185,10 @@ export const DEFAULT_SYNC_PLANS_HISTORY_FILE_PREFIX =
 export const DEFAULT_LOG_HISTORY_FILE_PREFIX = "log_hist_exported_on_";
 
 export type SyncTriggerSourceType = "manual" | "auto" | "dry" | "autoOnceInit";
+
+declare module "obsidian" {
+  interface App {
+    loadLocalStorage(key: string): string | null;
+    saveLocalStorage(key: string, value: string | undefined): void;
+  }
+}

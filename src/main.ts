@@ -1,4 +1,7 @@
 import {
+  debounce,
+  Debouncer,
+  EventRef,
   Modal,
   Notice,
   Plugin,
@@ -6,6 +9,7 @@ import {
   addIcon,
   setIcon,
   FileSystemAdapter,
+  Platform,
 } from "obsidian";
 import cloneDeep from "lodash/cloneDeep";
 import { createElement, RotateCcw, RefreshCcw, FileText } from "lucide";
@@ -66,8 +70,10 @@ import {
   exportVaultSyncPlansToFiles,
 } from "./debugMode";
 import { SizesConflictModal } from "./syncSizesConflictNotice";
+import { LocalStorageSettings } from "./localstorage";
 
 const DEFAULT_SETTINGS: RemotelySavePluginSettings = {
+  disablePlugin: false,
   s3: DEFAULT_S3_CONFIG,
   webdav: DEFAULT_WEBDAV_CONFIG,
   dropbox: DEFAULT_DROPBOX_CONFIG,
@@ -77,6 +83,7 @@ const DEFAULT_SETTINGS: RemotelySavePluginSettings = {
   currLogLevel: "info",
   // vaultRandomID: "", // deprecated
   autoRunEveryMilliseconds: -1,
+  autoRunAfterModified: false,
   initRunAfterMilliseconds: -1,
   agreeToUploadExtraMetadata: false,
   concurrency: 5,
@@ -85,6 +92,8 @@ const DEFAULT_SETTINGS: RemotelySavePluginSettings = {
   lang: "auto",
   logToDB: false,
   skipSizeLargerThan: -1,
+  enableStatusBarInfo: true,
+  lastSuccessSync: -1,
 };
 
 interface OAuth2Info {
@@ -123,8 +132,10 @@ const getIconSvg = () => {
 
 export default class RemotelySavePlugin extends Plugin {
   settings: RemotelySavePluginSettings;
+  localStorage: LocalStorageSettings;
   db: InternalDBs;
   syncStatus: SyncStatusType;
+  statusBarElement: HTMLSpanElement;
   oauth2Info: OAuth2Info;
   currLogLevel: string;
   currSyncMsg?: string;
@@ -132,8 +143,14 @@ export default class RemotelySavePlugin extends Plugin {
   autoRunIntervalID?: number;
   i18n: I18n;
   vaultRandomID: string;
+  autoBackupDebouncer: Debouncer<any, void>;
+  onFileModifyEventRef?: EventRef;
+  timeoutIDBackup?: number;
 
   async syncRun(triggerSource: SyncTriggerSourceType = "manual") {
+    if (this.localStorage.getPluginDisabled()) {
+      return
+    }
     const t = (x: TransItemType, vars?: any) => {
       return this.i18n.t(x, vars);
     };
@@ -355,9 +372,16 @@ export default class RemotelySavePlugin extends Plugin {
       this.syncStatus = "finish";
       this.syncStatus = "idle";
 
+      this.settings.lastSuccessSync = Date.now();
+      await this.saveSettings();
+
       if (this.syncRibbon !== undefined) {
         setIcon(this.syncRibbon, iconNameSyncWait);
         this.syncRibbon.setAttribute("aria-label", originLabel);
+      }
+
+      if (this.statusBarElement !== undefined) {
+        this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
       }
 
       log.info(
@@ -392,6 +416,9 @@ export default class RemotelySavePlugin extends Plugin {
 
   async onload() {
     log.info(`loading plugin ${this.manifest.id}`);
+
+    this.localStorage = new LocalStorageSettings(this);
+    this.localStorage.migrate();
 
     const { iconSvgSyncWait, iconSvgSyncRunning, iconSvgLogs } = getIconSvg();
 
@@ -456,6 +483,27 @@ export default class RemotelySavePlugin extends Plugin {
     this.enableAutoClearSyncPlanHist();
 
     this.syncStatus = "idle";
+
+    this.addSettingTab(new RemotelySaveSettingTab(this.app, this));
+
+    // Create Status Bar Item (not supported on mobile)
+    if (!Platform.isMobileApp && this.settings.enableStatusBarInfo === true) {
+      const statusBarItem = this.addStatusBarItem();
+      this.statusBarElement = statusBarItem.createEl("span");
+      this.statusBarElement.setAttribute("aria-label-position", "top");
+
+      this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
+      // update statusbar text every 30 seconds
+      this.registerInterval(window.setInterval(() => {
+        this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
+      }, 1000 * 30));
+    }
+
+    if (this.localStorage.getPluginDisabled()) {
+      return
+    }
+
+    this.startAutoBackup();
 
     this.registerEvent(
       this.app.vault.on("delete", async (fileOrFolder) => {
@@ -755,6 +803,14 @@ export default class RemotelySavePlugin extends Plugin {
       this.oauth2Info.helperModal = undefined;
       this.oauth2Info = undefined;
     }
+    if (this.timeoutIDBackup) {
+      window.clearTimeout(this.timeoutIDBackup)
+    }
+    if (this.autoBackupDebouncer) {
+      this.autoBackupDebouncer?.cancel();
+      this.app.vault.offref(this.onFileModifyEventRef);
+      this.onFileModifyEventRef = undefined;
+    }
   }
 
   async loadSettings() {
@@ -898,6 +954,29 @@ export default class RemotelySavePlugin extends Plugin {
     }
   }
 
+  startAutoBackup(mills?: number) {
+    // cancel timeout
+    if (this.onFileModifyEventRef) {
+      this.autoBackupDebouncer?.cancel();
+      this.app.vault.offref(this.onFileModifyEventRef);
+      this.onFileModifyEventRef = undefined;
+    }
+    if (this.timeoutIDBackup) {
+      window.clearInterval(this.timeoutIDBackup);
+    }
+
+    const time = mills || this.settings.autoRunEveryMilliseconds;
+
+    if (this.settings.autoRunAfterModified) {
+      if (time > 0) {
+        this.onFileModifyEventRef = this.app.vault.on("modify", () => this.autoBackupDebouncer());
+        this.autoBackupDebouncer = debounce(() => this.syncRun("auto"), time, true);
+      }
+    } else if (time > 0) {
+      this.timeoutIDBackup = window.setTimeout(() => this.syncRun("auto"), time);
+    }
+  }
+
   getVaultBasePath() {
     if (this.app.vault.adapter instanceof FileSystemAdapter) {
       // in desktop
@@ -963,6 +1042,57 @@ export default class RemotelySavePlugin extends Plugin {
   ) {
     const msg = `syncing progress=${i}/${totalCount},decision=${decision},path=${pathName}`;
     this.currSyncMsg = msg;
+  }
+
+  updateLastSuccessSyncMsg(lastSuccessSyncMillis?: number) {
+    if (this.statusBarElement === undefined) return;
+
+    const t = (x: TransItemType, vars?: any) => {
+      return this.i18n.t(x, vars);
+    };
+
+    let lastSyncMsg = t("statusbar_lastsync_never");
+    let lastSyncLabelMsg = t("statusbar_lastsync_never_label");
+
+    if (lastSuccessSyncMillis !== undefined && lastSuccessSyncMillis > 0) {
+      const deltaTime = Date.now() - lastSuccessSyncMillis;
+
+      // create human-readable time
+      const years = Math.floor(deltaTime / 31556952000);
+      const months = Math.floor(deltaTime / 2629746000);
+      const weeks = Math.floor(deltaTime / 604800000);
+      const days = Math.floor(deltaTime / 86400000);
+      const hours = Math.floor(deltaTime / 3600000);
+      const minutes = Math.floor(deltaTime / 60000);
+      let timeText: string;
+
+      if (years > 0) {
+        timeText = t("statusbar_time_years", { time: years });
+      } else if (months > 0) {
+        timeText = t("statusbar_time_months", { time: months });
+      } else if (weeks > 0) {
+        timeText = t("statusbar_time_weeks", { time: weeks });
+      } else if (days > 0) {
+        timeText = t("statusbar_time_days", { time: days });
+      } else if (hours > 0) {
+        timeText = t("statusbar_time_hours", { time: hours });
+      } else if (minutes > 0) {
+        timeText = t("statusbar_time_minutes", { time: minutes });
+      } else {
+        timeText = t("statusbar_time_lessminute");
+      }
+
+      let dateText = new Date(lastSuccessSyncMillis)
+        .toLocaleTimeString(navigator.language, {
+          weekday: "long", year: "numeric", month: "long", day: "numeric"
+        });
+
+      lastSyncMsg = t("statusbar_lastsync", { time: timeText });
+      lastSyncLabelMsg = t("statusbar_lastsync_label", { date: dateText });
+    }
+
+    this.statusBarElement.setText(lastSyncMsg);
+    this.statusBarElement.setAttribute("aria-label", lastSyncLabelMsg);
   }
 
   /**
