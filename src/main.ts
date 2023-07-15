@@ -217,6 +217,7 @@ export default class RemotelySavePlugin extends Plugin {
         })
       );
       this.syncStatus = "preparing";
+      this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
 
       getNotice(
         t("syncrun_step2", {
@@ -224,6 +225,8 @@ export default class RemotelySavePlugin extends Plugin {
         })
       );
       this.syncStatus = "getting_remote_files_list";
+      this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
+
       const self = this;
       const client = new RemoteClient(
         this.settings.serviceType,
@@ -243,6 +246,8 @@ export default class RemotelySavePlugin extends Plugin {
         })
       );
       this.syncStatus = "checking_password";
+      this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
+
       const passwordCheckResult = await isPasswordOk(
         remoteRsp.Contents,
         this.settings.password
@@ -258,6 +263,8 @@ export default class RemotelySavePlugin extends Plugin {
         })
       );
       this.syncStatus = "getting_remote_extra_meta";
+      this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
+
       const { remoteStates, metadataFile } = await parseRemoteItems(
         remoteRsp.Contents,
         this.db,
@@ -278,6 +285,8 @@ export default class RemotelySavePlugin extends Plugin {
         })
       );
       this.syncStatus = "getting_local_meta";
+      this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
+
       const local = this.app.vault.getAllLoadedFiles();
       const localHistory = await loadFileHistoryTableByVault(
         this.db,
@@ -300,6 +309,8 @@ export default class RemotelySavePlugin extends Plugin {
         })
       );
       this.syncStatus = "generating_plan";
+      this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
+
       const { plan, sortedKeys, deletions, sizesGoWrong } = await getSyncPlan(
         remoteStates,
         local,
@@ -329,6 +340,8 @@ export default class RemotelySavePlugin extends Plugin {
         );
 
         this.syncStatus = "syncing";
+        this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
+
         await doActualSync(
           client,
           this.db,
@@ -357,6 +370,8 @@ export default class RemotelySavePlugin extends Plugin {
         );
       } else {
         this.syncStatus = "syncing";
+        this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
+
         getNotice(
           t("syncrun_step7skip", {
             maxSteps: `${MAX_STEPS}`,
@@ -371,6 +386,7 @@ export default class RemotelySavePlugin extends Plugin {
       );
       this.syncStatus = "finish";
       this.syncStatus = "idle";
+      this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
 
       this.settings.lastSuccessSync = Date.now();
       await this.saveSettings();
@@ -381,7 +397,7 @@ export default class RemotelySavePlugin extends Plugin {
       }
 
       if (this.statusBarElement !== undefined) {
-        this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
+        this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
       }
 
       log.info(
@@ -407,6 +423,8 @@ export default class RemotelySavePlugin extends Plugin {
         getNotice(error.message, 10 * 1000);
       }
       this.syncStatus = "idle";
+      this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
+
       if (this.syncRibbon !== undefined) {
         setIcon(this.syncRibbon, iconNameSyncWait);
         this.syncRibbon.setAttribute("aria-label", originLabel);
@@ -490,12 +508,12 @@ export default class RemotelySavePlugin extends Plugin {
     if (!Platform.isMobileApp && this.settings.enableStatusBarInfo === true) {
       const statusBarItem = this.addStatusBarItem();
       this.statusBarElement = statusBarItem.createEl("span");
-      this.statusBarElement.setAttribute("aria-label-position", "top");
+      this.statusBarElement.setAttribute("aria-label-position", "bottom");
 
-      this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
+      this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
       // update statusbar text every 30 seconds
       this.registerInterval(window.setInterval(() => {
-        this.updateLastSuccessSyncMsg(this.settings.lastSuccessSync);
+        this.updateLastSuccessSyncMsg(this.syncStatus, this.settings.lastSuccessSync);
       }, 1000 * 30));
     }
 
@@ -1044,7 +1062,7 @@ export default class RemotelySavePlugin extends Plugin {
     this.currSyncMsg = msg;
   }
 
-  updateLastSuccessSyncMsg(lastSuccessSyncMillis?: number) {
+  updateLastSuccessSyncMsg(syncStatus: SyncStatusType, lastSuccessSyncMillis?: number) {
     if (this.statusBarElement === undefined) return;
 
     const t = (x: TransItemType, vars?: any) => {
@@ -1089,6 +1107,45 @@ export default class RemotelySavePlugin extends Plugin {
 
       lastSyncMsg = t("statusbar_lastsync", { time: timeText });
       lastSyncLabelMsg = t("statusbar_lastsync_label", { date: dateText });
+    }
+    switch (syncStatus) {
+      // case "idle":
+      case "checking_password":
+        lastSyncMsg = t("syncing");
+        lastSyncLabelMsg = t("checking_password");
+        break;
+      case "cleaning":
+        lastSyncMsg = t("syncing");
+        lastSyncLabelMsg = t("cleaning");
+        break;
+      case "finish":
+        lastSyncMsg = t("finish");
+        lastSyncLabelMsg = t("finish");
+        break;
+      case "generating_plan":
+        lastSyncMsg = t("syncing");
+        lastSyncLabelMsg = t("generating_plan");
+        break;
+      case "getting_local_meta":
+        lastSyncMsg = t("syncing");
+        lastSyncLabelMsg = t("getting_local_meta");
+        break;
+      case "getting_remote_extra_meta":
+        lastSyncMsg = t("syncing");
+        lastSyncLabelMsg = t("getting_remote_extra_meta");
+        break;
+      case "getting_remote_files_list":
+        lastSyncMsg = t("syncing");
+        lastSyncLabelMsg = t("getting_remote_files_list");
+        break;
+      case "syncing":
+        lastSyncMsg = t("syncing");
+        lastSyncLabelMsg = t("syncing");
+        break;
+      case "preparing":
+        lastSyncMsg = t("syncing");
+        lastSyncLabelMsg = t("preparing");
+        break;
     }
 
     this.statusBarElement.setText(lastSyncMsg);
