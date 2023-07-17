@@ -238,7 +238,6 @@ export default class RemotelySavePlugin extends Plugin {
         () => self.saveSettings()
       );
       const remoteRsp = await client.listFromRemote();
-      // log.debug(remoteRsp);
 
       getNotice(
         t("syncrun_step3", {

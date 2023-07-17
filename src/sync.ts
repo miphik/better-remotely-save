@@ -1,20 +1,14 @@
-import {
-  TAbstractFile,
-  TFile,
-  TFolder,
-  Vault,
-  requireApiVersion,
-} from "obsidian";
+import {requireApiVersion, TAbstractFile, TFile, TFolder, Vault,} from "obsidian";
 import AggregateError from "aggregate-error";
 import PQueue from "p-queue";
 import type {
-  RemoteItem,
-  SyncTriggerSourceType,
   DecisionType,
   FileOrFolderMixedState,
+  RemoteItem,
   SUPPORTED_SERVICES_TYPE,
+  SyncTriggerSourceType,
 } from "./baseTypes";
-import { API_VER_STAT_FOLDER } from "./baseTypes";
+import {API_VER_STAT_FOLDER} from "./baseTypes";
 import {
   decryptBase32ToString,
   decryptBase64urlToString,
@@ -23,35 +17,22 @@ import {
   MAGIC_ENCRYPTED_PREFIX_BASE32,
   MAGIC_ENCRYPTED_PREFIX_BASE64URL,
 } from "./encrypt";
-import type { FileFolderHistoryRecord, InternalDBs } from "./localdb";
+import type {FileFolderHistoryRecord, InternalDBs} from "./localdb";
+import {clearDeleteRenameHistoryOfKeyAndVault, upsertSyncMetaMappingDataByVault,} from "./localdb";
+import {atWhichLevel, getParentFolder, isHiddenPath, isVaildText, mkdirpInVault, statFix, unixTimeToStr,} from "./misc";
+import {RemoteClient} from "./remote";
 import {
-  clearDeleteRenameHistoryOfKeyAndVault,
-  getSyncMetaMappingByRemoteKeyAndVault,
-  upsertSyncMetaMappingDataByVault,
-} from "./localdb";
-import {
-  isHiddenPath,
-  isVaildText,
-  mkdirpInVault,
-  getFolderLevels,
-  getParentFolder,
-  atWhichLevel,
-  unixTimeToStr,
-  statFix,
-} from "./misc";
-import { RemoteClient } from "./remote";
-import {
-  MetadataOnRemote,
-  DeletionOnRemote,
-  serializeMetadataOnRemote,
-  deserializeMetadataOnRemote,
   DEFAULT_FILE_NAME_FOR_METADATAONREMOTE,
   DEFAULT_FILE_NAME_FOR_METADATAONREMOTE2,
+  DeletionOnRemote,
+  deserializeMetadataOnRemote,
   isEqualMetadataOnRemote,
+  MetadataOnRemote,
+  serializeMetadataOnRemote,
 } from "./metadataOnRemote";
-import { isInsideObsFolder, ObsConfigDirFileType } from "./obsFolderLister";
+import {isInsideObsFolder, ObsConfigDirFileType} from "./obsFolderLister";
 
-import { log } from "./moreOnLog";
+import {log} from "./moreOnLog";
 
 export type SyncStatusType =
   | "idle"
@@ -191,7 +172,6 @@ export const parseRemoteItems = async (
       metadataFile: metadataFile,
     };
   }
-
   for (const entry of remote) {
     const remoteEncryptedKey = entry.key;
     let key = remoteEncryptedKey;
@@ -206,46 +186,47 @@ export const parseRemoteItems = async (
         throw Error(`unexpected key=${remoteEncryptedKey}`);
       }
     }
-    const backwardMapping = await getSyncMetaMappingByRemoteKeyAndVault(
-      remoteType,
-      db,
-      key,
-      entry.lastModified,
-      entry.etag,
-      vaultRandomID
-    );
-
+    // const backwardMapping = await getSyncMetaMappingByRemoteKeyAndVault(
+    //   remoteType,
+    //   db,
+    //   key,
+    //   entry.lastModified,
+    //   entry.etag,
+    //   vaultRandomID
+    // );
+    //
+    // let r = {} as FileOrFolderMixedState;
+    // if (backwardMapping !== undefined) {
+    //   key = backwardMapping.localKey;
+    //   const mtimeRemote = backwardMapping.localMtime || entry.lastModified;
+    //
+    //   // the backwardMapping.localSize is the file BEFORE encryption
+    //   // we want to split two sizes for comparation later
+    //
+    //   r = {
+    //     key: key,
+    //     existRemote: true,
+    //     mtimeRemote: mtimeRemote,
+    //     mtimeRemoteFmt: unixTimeToStr(mtimeRemote),
+    //     sizeRemote: backwardMapping.localSize,
+    //     sizeRemoteEnc: password === "" ? undefined : entry.size,
+    //     remoteEncryptedKey: remoteEncryptedKey,
+    //     changeRemoteMtimeUsingMapping: true,
+    //   };
+    // } else {
+    // do not have backwardMapping
     let r = {} as FileOrFolderMixedState;
-    if (backwardMapping !== undefined) {
-      key = backwardMapping.localKey;
-      const mtimeRemote = backwardMapping.localMtime || entry.lastModified;
-
-      // the backwardMapping.localSize is the file BEFORE encryption
-      // we want to split two sizes for comparation later
-
-      r = {
-        key: key,
-        existRemote: true,
-        mtimeRemote: mtimeRemote,
-        mtimeRemoteFmt: unixTimeToStr(mtimeRemote),
-        sizeRemote: backwardMapping.localSize,
-        sizeRemoteEnc: password === "" ? undefined : entry.size,
-        remoteEncryptedKey: remoteEncryptedKey,
-        changeRemoteMtimeUsingMapping: true,
-      };
-    } else {
-      // do not have backwardMapping
-      r = {
-        key: key,
-        existRemote: true,
-        mtimeRemote: entry.lastModified,
-        mtimeRemoteFmt: unixTimeToStr(entry.lastModified),
-        sizeRemote: password === "" ? entry.size : undefined,
-        sizeRemoteEnc: password === "" ? undefined : entry.size,
-        remoteEncryptedKey: remoteEncryptedKey,
-        changeRemoteMtimeUsingMapping: false,
-      };
-    }
+    r = {
+      key: key,
+      existRemote: true,
+      mtimeRemote: entry.lastModified,
+      mtimeRemoteFmt: unixTimeToStr(entry.lastModified),
+      sizeRemote: password === "" ? entry.size : undefined,
+      sizeRemoteEnc: password === "" ? undefined : entry.size,
+      remoteEncryptedKey: remoteEncryptedKey,
+      changeRemoteMtimeUsingMapping: false,
+    };
+    //}
 
     if (r.key === DEFAULT_FILE_NAME_FOR_METADATAONREMOTE) {
       metadataFile = Object.assign({}, r);
@@ -845,7 +826,7 @@ const assignOperationToFolderInplace = async (
       // if it was created after deletion, we should keep it as is
       if (requireApiVersion(API_VER_STAT_FOLDER)) {
         if (r.existLocal) {
-          const { ctime, mtime } = await statFix(vault, r.key);
+          const {ctime, mtime} = await statFix(vault, r.key);
           const cmtime = Math.max(ctime ?? 0, mtime ?? 0);
           if (
             !Number.isNaN(cmtime) &&
@@ -1385,7 +1366,7 @@ export const doActualSync = async (
     return; // shortcut return, avoid too many nests below
   }
 
-  const { folderCreationOps, deletionOps, uploadDownloads, realTotalCount } =
+  const {folderCreationOps, deletionOps, uploadDownloads, realTotalCount} =
     splitThreeSteps(syncPlan, sortedKeys);
   const nested = [folderCreationOps, deletionOps, uploadDownloads];
   const logTexts = [
@@ -1409,7 +1390,7 @@ export const doActualSync = async (
         continue;
       }
 
-      const queue = new PQueue({ concurrency: concurrency, autoStart: true });
+      const queue = new PQueue({concurrency: concurrency, autoStart: true});
       const potentialErrors: Error[] = [];
       let tooManyErrors = false;
 

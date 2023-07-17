@@ -1,7 +1,7 @@
 {
 	"id": "better-remotely-save",
-	"name": "Better Remotely Save",
-	"version": "0.5.1",
+	"name": "Better Remotely Save DEV",
+	"version": "0.5.2",
 	"minAppVersion": "1.2.8",
 	"description": "(Modified) Yet another unofficial plugin allowing users to synchronize notes between local device and the cloud service.",
 	"author": "miphik",
